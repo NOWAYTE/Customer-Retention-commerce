@@ -6,7 +6,7 @@ import os
 
 MODEL_PATH = os.path.join(
     os.path.dirname(__file__),
-    '../../churn_model.pkl'  # adjust path if placed elsewhere
+    '../../data/churn_model.pkl'  # adjust path if placed elsewhere
 )
 
 _feature_order = [
