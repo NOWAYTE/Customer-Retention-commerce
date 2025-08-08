@@ -5,8 +5,10 @@ from ..models.churn import load_model, predict_churn
 from ..models.segment import CustomerSegment
 from ..extensions import db
 from datetime import datetime
+from .auth import token_required
 
-api_bp = Blueprint('api', __name__)
+# Load churn model once at import time
+model = load_model()
 
 # Required fields for prediction
 REQUIRED_FIELDS = [
@@ -14,9 +16,6 @@ REQUIRED_FIELDS = [
     'TenureDays', 'AvgPurchaseGap',
     'AvgBasketValue', 'BasketStdDev', 'UniqueProducts'
 ]
-
-# Load churn model once at import time
-model = load_model()
 
 def validate_input(data):
     """Validate input data and return error message if invalid"""
@@ -63,8 +62,11 @@ def trigger_marketing_action(customer_id, risk_score):
         return "targeted_offer"
     return "standard_engagement"
 
+api_bp = Blueprint('api', __name__)
+
 @api_bp.route('/predict', methods=['POST'])
-def predict():
+@token_required
+def predict(current_user):
     """
     Predict churn probability for a customer
     ---
@@ -128,11 +130,11 @@ def predict():
         return jsonify({"error": "Failed to process prediction"}), 500
 
 @api_bp.route('/segments', methods=['GET'])
-def segments():
+@token_required
+def segments(current_user):
     """
     Returns all customer segments from the database
     """
     segments = CustomerSegment.query.all()
     # Use the to_dict() method on each model instance
     return jsonify([seg.to_dict() for seg in segments])
-
