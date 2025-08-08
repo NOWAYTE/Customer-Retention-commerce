@@ -21,10 +21,11 @@ class BaseModel(db.Model):
     @classmethod
     def register(cls, name):
         """Class decorator to register models."""
-        return register_model(name, cls)
+        def decorator(model_class):
+            return register_model(name, model_class)
+        return decorator
         
     def __init__(self, **kwargs):
         # This allows the model to be initialized with keyword arguments
         for key, value in kwargs.items():
             setattr(self, key, value)
-
