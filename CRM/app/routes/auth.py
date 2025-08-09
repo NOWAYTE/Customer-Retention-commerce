@@ -49,6 +49,7 @@ def token_required(f):
 @auth_bp.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
+   
     
     # Validate input
     if not all(k in data for k in ['username', 'email', 'password']):
