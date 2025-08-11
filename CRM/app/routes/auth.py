@@ -50,6 +50,7 @@ def token_required(f):
 def register():
     data = request.get_json()
    
+   
     
     # Validate input
     if not all(k in data for k in ['username', 'email', 'password']):
