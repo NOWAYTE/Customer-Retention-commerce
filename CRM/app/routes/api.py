@@ -6,6 +6,7 @@ import os
 from flask import Blueprint, request, jsonify, current_app
 import joblib
 from datetime import datetime
+from ..utils.marketing import trigger_campaign_by_risk
 
 print("\n=== Loading API routes module ===", file=sys.stderr)
 
@@ -106,10 +107,12 @@ def get_recommended_actions(prob, data):
 @api_bp.route('/predict', methods=['POST'])
 def predict():
     """
-    Predict customer churn probability.
+    Predict customer churn probability and trigger marketing automation if needed.
     
     Expected JSON payload:
     {
+        "customer_id": "string",
+        "email": "string",
         "Recency": int,
         "Frequency": int,
         "Monetary": float,
@@ -133,6 +136,13 @@ def predict():
         data = request.get_json()
         validated_data = validate_customer_data(data)
         
+        # Add customer metadata if available
+        customer_data = {
+            'customer_id': data.get('customer_id', ''),
+            'email': data.get('email', '')
+        }
+        customer_data.update(validated_data)
+        
         # Prepare features in the correct order expected by the model
         features = [
             validated_data['Recency'],
@@ -152,13 +162,32 @@ def predict():
             current_app.logger.error(f"Prediction error: {str(e)}")
             raise ValueError(f"Error making prediction: {str(e)}")
         
+        # Trigger marketing automation if enabled
+        marketing_response = None
+        if current_app.config.get('MARKETING_WEBHOOK_ENABLED', False):
+            try:
+                marketing_response = trigger_campaign_by_risk(customer_data, probability)
+            except Exception as e:
+                current_app.logger.error(f"Marketing automation error: {str(e)}")
+                # Don't fail the prediction if marketing automation fails
+        
+        # Determine risk level for response
+        if probability >= current_app.config.get('RISK_THRESHOLD_HIGH', 0.7):
+            risk_level = 'high'
+        elif probability >= current_app.config.get('RISK_THRESHOLD_MEDIUM', 0.4):
+            risk_level = 'medium'
+        else:
+            risk_level = 'low'
+        
         # Generate response
         response = {
             'status': 'success',
             'churn_probability': float(probability),
-            'risk_level': 'high' if probability > 0.5 else 'moderate' if probability > 0.3 else 'low',
+            'risk_level': risk_level,
             'explanation': get_risk_explanation(probability, validated_data),
             'recommended_actions': get_recommended_actions(probability, validated_data),
+            'marketing_triggered': marketing_response is not None,
+            'marketing_response': marketing_response,
             'timestamp': datetime.utcnow().isoformat(),
             'model_loaded': True,
             'features_used': validated_data
@@ -168,12 +197,14 @@ def predict():
         current_app.logger.info(
             f"Prediction completed - "
             f"Probability: {probability:.2f}, "
-            f"Risk: {response['risk_level']}"
+            f"Risk: {risk_level}, "
+            f"Marketing Triggered: {marketing_response is not None}"
         )
         
         return jsonify(response), 200
         
     except ValueError as ve:
+        current_app.logger.error(f"Validation error: {str(ve)}")
         return jsonify({
             'status': 'error',
             'message': str(ve),
@@ -195,6 +226,7 @@ def ping():
         'status': 'success',
         'message': 'API is working',
         'model_loaded': model is not None,
+        'marketing_enabled': current_app.config.get('MARKETING_WEBHOOK_ENABLED', False),
         'timestamp': datetime.utcnow().isoformat()
     }), 200
 
