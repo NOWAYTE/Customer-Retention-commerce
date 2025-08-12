@@ -1,140 +1,136 @@
-# app/routes/api.py
-
+"""
+API routes for customer retention predictions.
+"""
 from flask import Blueprint, request, jsonify, current_app
-from ..models.churn import load_model, predict_churn
-from ..models.segment import CustomerSegment
-from ..extensions import db
+import joblib
+import os
 from datetime import datetime
-from .auth import token_required
+from ..utils.validators import validate_customer_data, handle_validation_error, ValidationError
+from ..models import get_model
+from ..extensions import db
 
-# Load churn model once at import time
-model = load_model()
+api_bp = Blueprint('api', __name__)
+
+# Load the model when the module is imported
+MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', 'models', 'churn_model.pkl')
+try:
+    model = joblib.load(MODEL_PATH)
+    current_app.logger.info("Successfully loaded the prediction model")
+except Exception as e:
+    current_app.logger.error(f"Error loading prediction model: {str(e)}")
+    model = None
 
 # Required fields for prediction
-REQUIRED_FIELDS = [
-    'Recency', 'Frequency', 'Monetary',
-    'TenureDays', 'AvgPurchaseGap',
-    'AvgBasketValue', 'BasketStdDev', 'UniqueProducts'
-]
-
-def validate_input(data):
-    """Validate input data and return error message if invalid"""
-    if not data:
-        return "No data provided"
-    
-    missing_fields = [field for field in REQUIRED_FIELDS if field not in data]
-    if missing_fields:
-        return f"Missing required fields: {', '.join(missing_fields)}"
-    
-    try:
-        # Convert all values to float to ensure they're numbers
-        for field in REQUIRED_FIELDS:
-            float(data[field])
-    except (ValueError, TypeError):
-        return f"Invalid data type for one or more fields. All fields must be numbers."
-    
-    return None
+REQUIRED_FIELDS = ['recency', 'frequency', 'monetary']
 
 def get_risk_explanation(prob, data):
     """Generate explanation for the risk score"""
     risk_level = "high" if prob > 0.5 else "moderate" if prob > 0.3 else "low"
     
-    # Simple explanation based on key factors
+    # Generate explanation based on key factors
     factors = []
-    if data['Recency'] > 100:
-        factors.append(f"high recency ({data['Recency']} days)")
-    if data['Frequency'] < 2:
-        factors.append(f"low purchase frequency ({data['Frequency']})")
-    if data['Monetary'] < 10:
-        factors.append(f"low monetary value (${data['Monetary']})")
+    if data['recency'] > 100:
+        factors.append(f"high recency ({data['recency']} days since last purchase)")
+    if data['frequency'] < 2:
+        factors.append(f"low purchase frequency ({data['frequency']} purchases)")
+    if data['monetary'] < 10:
+        factors.append(f"low monetary value (${data['monetary']:.2f})")
     
-    explanation = f"Customer has {risk_level} churn risk."
+    explanation = f"Customer has {risk_level} risk of churning"
     if factors:
-        explanation += " Key factors: " + ", ".join(factors) + "."
+        explanation += " due to: " + ", ".join(factors) + "."
+    else:
+        explanation += "."
     
     return explanation
 
-def trigger_marketing_action(customer_id, risk_score):
-    """Trigger appropriate marketing action based on risk score"""
-    if risk_score > 0.7:
-        return "immediate_retention_campaign"
-    elif risk_score > 0.4:
-        return "targeted_offer"
-    return "standard_engagement"
-
-api_bp = Blueprint('api', __name__)
+def get_recommended_actions(prob, data):
+    """Generate recommended actions based on risk level"""
+    if prob > 0.7:
+        return [
+            "Send personalized retention offer",
+            "Assign to account manager for personal outreach",
+            "Provide exclusive discount"
+        ]
+    elif prob > 0.4:
+        return [
+            "Send targeted email campaign",
+            "Offer loyalty points bonus"
+        ]
+    else:
+        return ["Standard retention campaign"]
 
 @api_bp.route('/predict', methods=['POST'])
-@token_required
-def predict(current_user):
+@handle_validation_error
+def predict():
     """
-    Predict churn probability for a customer
-    ---
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required: [Recency, Frequency, Monetary, TenureDays, AvgPurchaseGap, AvgBasketValue, BasketStdDev, UniqueProducts]
-          properties:
-            customer_id:
-              type: string
-              description: Unique customer identifier
-            Recency: {type: number}
-            Frequency: {type: number}
-            Monetary: {type: number}
-            TenureDays: {type: number}
-            AvgPurchaseGap: {type: number}
-            AvgBasketValue: {type: number}
-            BasketStdDev: {type: number}
-            UniqueProducts: {type: number}
-    responses:
-      200:
-        description: Churn prediction result
-        schema:
-          type: object
-          properties:
-            customer_id: {type: string}
-            churn_probability: {type: number}
-            risk_level: {type: string}
-            explanation: {type: string}
-            marketing_action: {type: string}
-            timestamp: {type: string}
+    Predict customer churn probability.
+    
+    Expected JSON payload:
+    {
+        "customer_id": "string",
+        "email": "string",
+        "recency": int,
+        "frequency": int,
+        "monetary": float
+    }
     """
-    data = request.get_json()
-    
-    # Validate input
-    error = validate_input(data)
-    if error:
-        return jsonify({"error": error}), 400
-    
     try:
-        # Get prediction
-        prob = predict_churn(model, data)
+        # Validate input data
+        data = request.get_json()
+        if not data:
+            raise ValidationError("No data provided")
+            
+        # Validate and clean input data
+        validated_data = validate_customer_data(data)
         
-        # Prepare response
+        # Prepare features for prediction
+        features = [
+            validated_data['recency'],
+            validated_data['frequency'],
+            validated_data['monetary']
+        ]
+        
+        # Make prediction
+        if model is None:
+            raise ValidationError("Prediction model not available", status_code=503)
+            
+        probability = model.predict_proba([features])[0][1]
+        
+        # Generate response
         response = {
-            "customer_id": data.get('customer_id', 'unknown'),
-            "churn_probability": prob,
-            "risk_level": "high" if prob > 0.5 else "moderate" if prob > 0.3 else "low",
-            "explanation": get_risk_explanation(prob, data),
-            "marketing_action": trigger_marketing_action(data.get('customer_id'), prob),
-            "timestamp": datetime.utcnow().isoformat()
+            'status': 'success',
+            'customer_id': validated_data['customer_id'],
+            'churn_probability': float(probability),
+            'risk_level': 'high' if probability > 0.5 else 'moderate' if probability > 0.3 else 'low',
+            'explanation': get_risk_explanation(probability, validated_data),
+            'recommended_actions': get_recommended_actions(probability, validated_data),
+            'timestamp': datetime.utcnow().isoformat()
         }
         
-        return jsonify(response)
+        # Log the prediction
+        current_app.logger.info(
+            f"Prediction for customer {validated_data['customer_id']}: "
+            f"probability={probability:.2f}, risk={response['risk_level']}"
+        )
+        
+        return jsonify(response), 200
         
     except Exception as e:
-        current_app.logger.error(f"Prediction error: {str(e)}")
-        return jsonify({"error": "Failed to process prediction"}), 500
+        current_app.logger.error(f"Error in prediction: {str(e)}")
+        raise ValidationError(str(e), status_code=500)
 
 @api_bp.route('/segments', methods=['GET'])
-@token_required
-def segments(current_user):
-    """
-    Returns all customer segments from the database
-    """
-    segments = CustomerSegment.query.all()
-    # Use the to_dict() method on each model instance
-    return jsonify([seg.to_dict() for seg in segments])
+@handle_validation_error
+def get_segments():
+    """Get all customer segments"""
+    try:
+        Segment = get_model('CustomerSegment')
+        segments = Segment.query.all()
+        return jsonify({
+            'status': 'success',
+            'segments': [segment.to_dict() for segment in segments]
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Error fetching segments: {str(e)}")
+        raise ValidationError("Failed to fetch segments", status_code=500)
