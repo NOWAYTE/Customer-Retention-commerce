@@ -5,6 +5,7 @@ from .config import Config
 from .extensions import db, migrate, login_manager
 from datetime import timedelta
 import sys
+import os
 
 def create_app(config_class=Config):
     """Application factory function."""
@@ -39,23 +40,62 @@ def create_app(config_class=Config):
     print("\n=== Registering Blueprints ===", file=sys.stderr)
     
     try:
+        print("\n--- Registering main blueprint ---", file=sys.stderr)
         from .routes.main import main_bp
+        print(f"✓ Successfully imported main_bp: {main_bp}", file=sys.stderr)
         app.register_blueprint(main_bp)
         print(f"✓ Registered blueprint: {main_bp.name} at /", file=sys.stderr)
     except Exception as e:
         print(f"✗ Error registering main blueprint: {str(e)}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
     
     try:
-        from .routes.api import api_bp
+        print("\n--- Registering API blueprint ---", file=sys.stderr)
+        print("Current sys.path:", sys.path, file=sys.stderr)
+        print("Attempting to import from:", os.path.abspath(os.path.join(os.path.dirname(__file__), 'routes', 'api.py')), file=sys.stderr)
+        
+        # Try to import the module directly to see if it works
+        try:
+            import importlib.util
+            module_path = os.path.join(os.path.dirname(__file__), 'routes', 'api.py')
+            spec = importlib.util.spec_from_file_location("app.routes.api", module_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            print("✓ Successfully imported api module directly", file=sys.stderr)
+            api_bp = module.api_bp
+            print(f"✓ Got api_bp from direct import: {api_bp}", file=sys.stderr)
+        except Exception as import_error:
+            print(f"✗ Error importing api module directly: {str(import_error)}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            # Fall back to regular import
+            from .routes.api import api_bp
+            
+        print(f"✓ Successfully imported api_bp: {api_bp}", file=sys.stderr)
+        
+        # Add a test route directly to verify blueprint registration
+        @api_bp.route('/_direct_test')
+        def direct_test():
+            return jsonify({"status": "success", "message": "Direct test route works!"})
+        
         app.register_blueprint(api_bp, url_prefix='/api')
         print(f"✓ Registered blueprint: {api_bp.name} at /api", file=sys.stderr)
+        
+        # Verify the route was registered
+        print("\n--- Registered routes after API blueprint ---", file=sys.stderr)
+        for rule in app.url_map.iter_rules():
+            print(f"  {rule.endpoint}: {rule.rule}", file=sys.stderr)
+            
     except Exception as e:
         print(f"✗ Error registering API blueprint: {str(e)}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
     
     try:
+        print("\n--- Registering auth blueprint ---", file=sys.stderr)
         from .routes.auth import auth_bp
+        print(f"✓ Successfully imported auth_bp: {auth_bp}", file=sys.stderr)
         app.register_blueprint(auth_bp, url_prefix='/auth')
         print(f"✓ Registered blueprint: {auth_bp.name} at /auth", file=sys.stderr)
         
@@ -75,7 +115,8 @@ def create_app(config_class=Config):
         
     except Exception as e:
         print(f"✗ Error registering auth blueprint: {str(e)}", file=sys.stderr)
-        raise  # Re-raise to see full traceback
+        import traceback
+        traceback.print_exc(file=sys.stderr)
     
     # Print all registered routes after all blueprints are registered
     @app.after_request
