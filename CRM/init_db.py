@@ -5,6 +5,7 @@ Run this file to create all database tables.
 import os
 import sys
 import traceback
+from sqlalchemy import inspect, text
 from app import create_app
 from app.extensions import db
 
@@ -23,36 +24,54 @@ def init_db():
         print("\nImporting models...")
         try:
             from app.models.user import User
-            print("✓ User model imported successfully")
+            from app.models.customer import Customer
+            from app.models.segment import CustomerSegment
+            print("✓ Models imported successfully")
         except Exception as e:
-            print(f"Error importing User model: {str(e)}")
+            print(f"Error importing models: {str(e)}")
             traceback.print_exc()
-        
-        # Verify models are registered with SQLAlchemy
-        print("\nModels registered with SQLAlchemy:")
-        for model in db.Model._decl_class_registry.values():
-            if hasattr(model, '__tablename__'):
-                print(f"- {model.__name__} (table: {model.__tablename__})")
         
         # Create all database tables
         print("\nCreating database tables...")
         try:
+            # Drop all tables first (be careful with this in production!)
+            db.drop_all()
+            print("✓ Dropped all existing tables")
+            
+            # Create all tables
             db.create_all()
-            print("✓ Database tables created")
+            print("✓ Created all tables")
+            
+            # Verify tables were created
+            inspector = inspect(db.engine)
+            tables = inspector.get_table_names()
+            
+            print("\nDatabase initialized successfully!")
+            print(f"Database location: {app.config['SQLALCHEMY_DATABASE_URI']}")
+            print("\nTables created:")
+            for table in tables:
+                print(f"- {table}")
+                
+            # Print table columns for verification
+            for table in tables:
+                print(f"\nTable: {table}")
+                columns = [c['name'] for c in inspector.get_columns(table)]
+                for col in columns:
+                    print(f"  - {col}")
+                    
         except Exception as e:
-            print(f"Error creating tables: {str(e)}")
+            print(f"Error during database initialization: {str(e)}")
             traceback.print_exc()
-        
-        # Verify tables were created
-        from sqlalchemy import inspect
-        inspector = inspect(db.engine)
-        tables = inspector.get_table_names()
-        
-        print("\nDatabase initialized successfully!")
-        print(f"Database location: {app.config['SQLALCHEMY_DATABASE_URI']}")
-        print("\nTables created:")
-        for table in tables:
-            print(f"- {table}")
+            
+            # Try to get more details about the database state
+            try:
+                print("\nChecking database connection...")
+                with db.engine.connect() as conn:
+                    result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';"))
+                    tables = [row[0] for row in result]
+                    print("\nExisting tables:", tables)
+            except Exception as db_error:
+                print(f"Error checking database: {str(db_error)}")
 
 if __name__ == '__main__':
     init_db()
