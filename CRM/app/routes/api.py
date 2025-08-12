@@ -11,6 +11,16 @@ from ..extensions import db
 
 api_bp = Blueprint('api', __name__)
 
+# Test route to verify API is working
+@api_bp.route('/test', methods=['GET'])
+def test():
+    """Test endpoint to verify API is working"""
+    return jsonify({
+        'status': 'success',
+        'message': 'API is working!',
+        'timestamp': datetime.utcnow().isoformat()
+    }), 200
+
 # Load the model when the module is imported
 MODEL_PATH = os.path.join(os.path.dirname(__file__), '..', 'models', 'churn_model.pkl')
 try:

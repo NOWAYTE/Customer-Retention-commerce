@@ -42,6 +42,7 @@ def create_app(config_class=Config):
         from .routes.main import main_bp
         app.register_blueprint(main_bp)
         print(f"✓ Registered blueprint: {main_bp.name} at /", file=sys.stderr)
+        print(f"  - Routes: {', '.join([str(rule) for rule in main_bp.url_map._rules])}", file=sys.stderr)
     except Exception as e:
         print(f"✗ Error registering main blueprint: {str(e)}", file=sys.stderr)
     
@@ -49,13 +50,17 @@ def create_app(config_class=Config):
         from .routes.api import api_bp
         app.register_blueprint(api_bp, url_prefix='/api')
         print(f"✓ Registered blueprint: {api_bp.name} at /api", file=sys.stderr)
+        print(f"  - Routes: {', '.join([str(rule) for rule in api_bp.url_map._rules])}", file=sys.stderr)
     except Exception as e:
         print(f"✗ Error registering API blueprint: {str(e)}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
     
     try:
         from .routes.auth import auth_bp
         app.register_blueprint(auth_bp, url_prefix='/auth')
         print(f"✓ Registered blueprint: {auth_bp.name} at /auth", file=sys.stderr)
+        print(f"  - Routes: {', '.join([str(rule) for rule in auth_bp.url_map._rules])}", file=sys.stderr)
         
         # Add debug route to list all registered routes
         @app.route('/debug/routes')
