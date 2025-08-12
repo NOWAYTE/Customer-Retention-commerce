@@ -25,32 +25,84 @@ try:
         print("✓ Model loaded successfully", file=sys.stderr)
     else:
         print(f"✗ Model file not found at {MODEL_PATH}", file=sys.stderr)
-        # Try alternative path for development
-        alt_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'churn_model.pkl')
-        print(f"Trying alternative path: {os.path.abspath(alt_path)}", file=sys.stderr)
-        if os.path.exists(alt_path):
-            model = joblib.load(alt_path)
-            print("✓ Model loaded from alternative path", file=sys.stderr)
-        else:
-            print(f"✗ Model not found at alternative path either", file=sys.stderr)
 except Exception as e:
     print(f"✗ Error loading prediction model: {str(e)}", file=sys.stderr)
     model = None
 
-# Simple test route
-@api_bp.route('/ping')
-def ping():
-    """Test endpoint to verify API is working"""
-    print("Ping route called", file=sys.stderr)
-    return jsonify({
-        'status': 'success',
-        'message': 'pong',
-        'blueprint': api_bp.name,
-        'endpoint': 'ping',
-        'model_loaded': model is not None
-    })
+# Required fields for prediction
+REQUIRED_FEATURES = [
+    'Recency', 'Frequency', 'Monetary',
+    'TenureDays', 'AvgPurchaseGap',
+    'AvgBasketValue', 'BasketStdDev', 'UniqueProducts'
+]
 
-# Simple predict route with model check
+def validate_customer_data(data):
+    """Validate and clean customer data for prediction"""
+    if not data:
+        raise ValueError("No data provided")
+        
+    validated = {}
+    
+    # Check for required fields
+    for field in REQUIRED_FEATURES:
+        if field not in data:
+            raise ValueError(f"Missing required field: {field}")
+        
+        # Convert to appropriate type
+        try:
+            if field in ['Recency', 'Frequency', 'TenureDays', 'UniqueProducts']:
+                validated[field] = int(data[field])
+            else:  # Monetary, AvgPurchaseGap, AvgBasketValue, BasketStdDev
+                validated[field] = float(data[field])
+                
+            # Additional validation
+            if validated[field] < 0:
+                raise ValueError(f"{field} cannot be negative")
+                
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid value for {field}: {data[field]}")
+    
+    return validated
+
+def get_risk_explanation(prob, data):
+    """Generate explanation for the risk score"""
+    risk_level = "high" if prob > 0.5 else "moderate" if prob > 0.3 else "low"
+    
+    # Generate explanation based on key factors
+    factors = []
+    if data['Recency'] > 100:
+        factors.append(f"high recency ({data['Recency']} days since last purchase)")
+    if data['Frequency'] < 2:
+        factors.append(f"low purchase frequency ({data['Frequency']} purchases)")
+    if data['Monetary'] < 10:
+        factors.append(f"low monetary value (${data['Monetary']:.2f})")
+    if data['AvgPurchaseGap'] > 30:
+        factors.append(f"long average time between purchases ({data['AvgPurchaseGap']:.1f} days)")
+    
+    explanation = f"Customer has {risk_level} risk of churning"
+    if factors:
+        explanation += " due to: " + ", ".join(factors) + "."
+    else:
+        explanation += "."
+    
+    return explanation
+
+def get_recommended_actions(prob, data):
+    """Generate recommended actions based on risk level"""
+    if prob > 0.7:
+        return [
+            "Send personalized retention offer",
+            "Assign to account manager for personal outreach",
+            "Provide exclusive discount"
+        ]
+    elif prob > 0.4:
+        return [
+            "Send targeted email campaign",
+            "Offer loyalty points bonus"
+        ]
+    else:
+        return ["Standard retention campaign"]
+
 @api_bp.route('/predict', methods=['POST'])
 def predict():
     """
@@ -58,11 +110,14 @@ def predict():
     
     Expected JSON payload:
     {
-        "customer_id": "string",
-        "email": "string",
-        "recency": int,
-        "frequency": int,
-        "monetary": float
+        "Recency": int,
+        "Frequency": int,
+        "Monetary": float,
+        "TenureDays": int,
+        "AvgPurchaseGap": float,
+        "AvgBasketValue": float,
+        "BasketStdDev": float,
+        "UniqueProducts": int
     }
     """
     # Check if model is loaded
@@ -72,27 +127,22 @@ def predict():
             'message': 'Prediction model not available',
             'model_loaded': False
         }), 503
-        
+    
     try:
-        # Validate input data
+        # Get and validate input data
         data = request.get_json()
-        if not data:
-            raise Exception("No data provided")
-            
-        # Validate and clean input data
-        validated_data = {
-            'customer_id': data.get('customer_id'),
-            'email': data.get('email'),
-            'recency': data.get('recency'),
-            'frequency': data.get('frequency'),
-            'monetary': data.get('monetary')
-        }
+        validated_data = validate_customer_data(data)
         
-        # Prepare features for prediction
+        # Prepare features in the correct order expected by the model
         features = [
-            validated_data['recency'],
-            validated_data['frequency'],
-            validated_data['monetary']
+            validated_data['Recency'],
+            validated_data['Frequency'],
+            validated_data['Monetary'],
+            validated_data['TenureDays'],
+            validated_data['AvgPurchaseGap'],
+            validated_data['AvgBasketValue'],
+            validated_data['BasketStdDev'],
+            validated_data['UniqueProducts']
         ]
         
         # Make prediction
@@ -100,34 +150,52 @@ def predict():
             probability = model.predict_proba([features])[0][1]
         except Exception as e:
             current_app.logger.error(f"Prediction error: {str(e)}")
-            raise Exception(f"Error making prediction: {str(e)}", 500)
+            raise ValueError(f"Error making prediction: {str(e)}")
         
         # Generate response
         response = {
             'status': 'success',
-            'customer_id': validated_data['customer_id'],
             'churn_probability': float(probability),
             'risk_level': 'high' if probability > 0.5 else 'moderate' if probability > 0.3 else 'low',
-            'explanation': 'Test explanation',
-            'recommended_actions': ['Test action 1', 'Test action 2'],
+            'explanation': get_risk_explanation(probability, validated_data),
+            'recommended_actions': get_recommended_actions(probability, validated_data),
             'timestamp': datetime.utcnow().isoformat(),
-            'model_loaded': True
+            'model_loaded': True,
+            'features_used': validated_data
         }
         
         # Log the prediction
         current_app.logger.info(
-            f"Prediction for customer {validated_data['customer_id']}: "
-            f"probability={probability:.2f}, risk={response['risk_level']}"
+            f"Prediction completed - "
+            f"Probability: {probability:.2f}, "
+            f"Risk: {response['risk_level']}"
         )
         
         return jsonify(response), 200
         
+    except ValueError as ve:
+        return jsonify({
+            'status': 'error',
+            'message': str(ve),
+            'model_loaded': model is not None
+        }), 400
     except Exception as e:
         current_app.logger.error(f"Unexpected error in prediction: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': str(e),
+            'message': 'An unexpected error occurred',
             'model_loaded': model is not None
         }), 500
+
+# Simple health check endpoint
+@api_bp.route('/ping', methods=['GET'])
+def ping():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'success',
+        'message': 'API is working',
+        'model_loaded': model is not None,
+        'timestamp': datetime.utcnow().isoformat()
+    }), 200
 
 print("✓ API routes initialized", file=sys.stderr)
