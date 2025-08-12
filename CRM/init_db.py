@@ -4,6 +4,7 @@ Run this file to create all database tables.
 """
 import os
 import sys
+import traceback
 from app import create_app
 from app.extensions import db
 
@@ -18,9 +19,29 @@ def init_db():
         db_dir = os.path.join(os.path.dirname(__file__), 'instance')
         os.makedirs(db_dir, exist_ok=True)
         
+        # Explicitly import all models
+        print("\nImporting models...")
+        try:
+            from app.models.user import User
+            print("✓ User model imported successfully")
+        except Exception as e:
+            print(f"Error importing User model: {str(e)}")
+            traceback.print_exc()
+        
+        # Verify models are registered with SQLAlchemy
+        print("\nModels registered with SQLAlchemy:")
+        for model in db.Model._decl_class_registry.values():
+            if hasattr(model, '__tablename__'):
+                print(f"- {model.__name__} (table: {model.__tablename__})")
+        
         # Create all database tables
-        print("Creating database tables...")
-        db.create_all()
+        print("\nCreating database tables...")
+        try:
+            db.create_all()
+            print("✓ Database tables created")
+        except Exception as e:
+            print(f"Error creating tables: {str(e)}")
+            traceback.print_exc()
         
         # Verify tables were created
         from sqlalchemy import inspect
@@ -32,13 +53,6 @@ def init_db():
         print("\nTables created:")
         for table in tables:
             print(f"- {table}")
-        
-        # Verify users table has the correct columns
-        if 'users' in tables:
-            print("\nUsers table columns:")
-            columns = [c['name'] for c in inspector.get_columns('users')]
-            for col in columns:
-                print(f"- {col}")
 
 if __name__ == '__main__':
     init_db()
