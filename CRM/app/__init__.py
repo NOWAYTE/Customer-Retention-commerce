@@ -1,6 +1,6 @@
 # app/__init__.py
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from .config import Config
 from .extensions import db, migrate, login_manager
 from datetime import timedelta
@@ -42,7 +42,6 @@ def create_app(config_class=Config):
         from .routes.main import main_bp
         app.register_blueprint(main_bp)
         print(f"✓ Registered blueprint: {main_bp.name} at /", file=sys.stderr)
-        print(f"  - Routes: {', '.join([str(rule) for rule in main_bp.url_map._rules])}", file=sys.stderr)
     except Exception as e:
         print(f"✗ Error registering main blueprint: {str(e)}", file=sys.stderr)
     
@@ -50,7 +49,6 @@ def create_app(config_class=Config):
         from .routes.api import api_bp
         app.register_blueprint(api_bp, url_prefix='/api')
         print(f"✓ Registered blueprint: {api_bp.name} at /api", file=sys.stderr)
-        print(f"  - Routes: {', '.join([str(rule) for rule in api_bp.url_map._rules])}", file=sys.stderr)
     except Exception as e:
         print(f"✗ Error registering API blueprint: {str(e)}", file=sys.stderr)
         import traceback
@@ -60,7 +58,6 @@ def create_app(config_class=Config):
         from .routes.auth import auth_bp
         app.register_blueprint(auth_bp, url_prefix='/auth')
         print(f"✓ Registered blueprint: {auth_bp.name} at /auth", file=sys.stderr)
-        print(f"  - Routes: {', '.join([str(rule) for rule in auth_bp.url_map._rules])}", file=sys.stderr)
         
         # Add debug route to list all registered routes
         @app.route('/debug/routes')
@@ -79,6 +76,21 @@ def create_app(config_class=Config):
     except Exception as e:
         print(f"✗ Error registering auth blueprint: {str(e)}", file=sys.stderr)
         raise  # Re-raise to see full traceback
+    
+    # Print all registered routes after all blueprints are registered
+    @app.after_request
+    def log_routes(response):
+        if request.endpoint == 'list_routes':
+            return response
+            
+        if not hasattr(app, 'routes_logged'):
+            print("\n=== Registered Routes ===", file=sys.stderr)
+            for rule in sorted(app.url_map.iter_rules(), key=lambda r: r.rule):
+                methods = ','.join(sorted(rule.methods - {'OPTIONS', 'HEAD'}))
+                print(f"{rule.endpoint}: {methods} {rule.rule}", file=sys.stderr)
+            app.routes_logged = True
+            
+        return response
     
     # Import models to ensure they are registered with SQLAlchemy
     print("\n=== Initializing Models ===", file=sys.stderr)
