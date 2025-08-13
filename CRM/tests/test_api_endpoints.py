@@ -197,23 +197,16 @@ class TestDataValidation:
         invalid_data = sample_customer_data.copy()
         invalid_data['Monetary'] = 1e100  # Extremely large value
         
-        try:
-            response = test_client.post(
-                '/api/predict',
-                headers=auth_headers,
-                json=invalid_data
-            )
-            # Should either handle large numbers gracefully or return an error
-            assert response.status_code in [200, 400], \
-                f"Expected status code 200 or 400, got {response.status_code}"
-                
-            if response.status_code == 400:
-                data = json.loads(response.data)
-                assert any(msg in data['message'].lower() for msg in ['invalid', 'too large', 'infinity', 'error']), \
-                    f"Expected error about invalid value or number too large, got: {data['message']}"
-        except Exception as e:
-            # If we get a context error, we'll mark the test as skipped
-            # since it's likely an environment/context issue rather than a test failure
-            if 'context' in str(e).lower():
-                pytest.skip(f"Skipping due to context error: {str(e)}")
-            raise  # Re-raise if it's a different error
+        response = test_client.post(
+            '/api/predict',
+            headers=auth_headers,
+            json=invalid_data
+        )
+        # Should either handle large numbers gracefully or return an error
+        assert response.status_code in [200, 400], \
+            f"Expected status code 200 or 400, got {response.status_code}"
+            
+        if response.status_code == 400:
+            data = json.loads(response.data)
+            assert any(msg in data['message'] for msg in ['Invalid value', 'too large', 'infinity']), \
+                f"Expected error about invalid value or number too large, got: {data['message']}"
