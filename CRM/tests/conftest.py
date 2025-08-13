@@ -35,41 +35,37 @@ def test_app():
     os.close(db_fd)
     os.unlink(db_path)
 
-@pytest.fixture(scope='module')
-def test_client(test_app):
-    """Create a test client for the Flask application with proper context management."""
-    # Create a test client using the Flask application configured for testing
+@pytest.fixture(scope='function')
+def test_client(test_app, init_database):
+    """Create a test client for the Flask application."""
     with test_app.test_client() as testing_client:
-        # Establish an application context before running the tests
         with test_app.app_context():
-            yield testing_client  # This is where the testing happens
+            yield testing_client
+            # Clean up the session after each test
+            db.session.remove()
+            db.get_engine(test_app).dispose()
 
-    # Clean up after tests are done
-    with test_app.app_context():
-        db.session.remove()
-        db.drop_all()
-
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='function')
 def init_database(test_app):
-    """Initialize the test database."""
+    """Initialize the database with test data."""
     with test_app.app_context():
-        # Clear existing data and create tables
-        db.drop_all()
         db.create_all()
         
-        # Insert test user - using the correct password field that will be hashed
+        # Create a test user
         user = User(
             username='testuser',
             email='test@example.com',
-            password='testpass123'  # This will be hashed by the User model
+            password='testpass'  # Will be hashed by the User model
         )
         db.session.add(user)
         db.session.commit()
         
         yield db  # This is where testing happens
         
+        # Clean up after tests
         db.session.remove()
         db.drop_all()
+        db.get_engine(test_app).dispose()
 
 @pytest.fixture
 def auth_headers(test_client, init_database):
@@ -79,7 +75,7 @@ def auth_headers(test_client, init_database):
         '/auth/login',
         json={
             'email': 'test@example.com',
-            'password': 'testpass123'
+            'password': 'testpass'
         }
     )
     token = login_response.get_json().get('access_token')

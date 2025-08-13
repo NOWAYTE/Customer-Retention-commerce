@@ -177,6 +177,7 @@ class TestDataValidation:
         invalid_data = sample_customer_data.copy()
         invalid_data['Recency'] = 'thirty'
         
+        response = None
         try:
             response = test_client.post(
                 '/api/predict',
@@ -192,6 +193,6 @@ class TestDataValidation:
                 assert 'Invalid value' in data['message'], \
                     f"Expected invalid value error, got: {data['message']}"
         finally:
-            # Ensure any database sessions are properly closed
-            from app import db
-            db.session.remove()
+            # Clean up any database connections
+            if response and hasattr(response, 'close'):
+                response.close()
