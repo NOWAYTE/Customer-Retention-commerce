@@ -50,8 +50,7 @@ class TestAuthEndpoints:
 
 
 class TestPredictionEndpoints:
-    """Test prediction-related endpoints."""
-    
+    """Test prediction-related endpoints.""" 
     def test_predict_unauthorized(self, test_client, sample_customer_data):
         """Test prediction without authentication."""
         response = test_client.post(
@@ -59,7 +58,6 @@ class TestPredictionEndpoints:
             json=sample_customer_data
         )
         assert response.status_code == 401
-    
     def test_predict_success(self, test_client, auth_headers, sample_customer_data):
         """Test successful prediction."""
         response = test_client.post(
@@ -74,24 +72,21 @@ class TestPredictionEndpoints:
         assert 'recommended_actions' in data
         assert isinstance(data['churn_probability'], float)
         assert 0 <= data['churn_probability'] <= 1
-    
     def test_predict_missing_fields(self, test_client, auth_headers):
         """Test prediction with missing required fields."""
         response = test_client.post(
             '/api/predict',
             headers=auth_headers,
-            json={"Recency": 30}  # Missing other required fields
+            json={"Recency": 30}
         )
         assert response.status_code == 400
         data = json.loads(response.data)
         assert 'message' in data
-        assert 'Missing required field' in data['message']
-    
+        assert 'Missing required field' in data['message']    
     def test_predict_invalid_data(self, test_client, auth_headers, sample_customer_data):
         """Test prediction with invalid data types."""
         invalid_data = sample_customer_data.copy()
-        invalid_data['Recency'] = "not_an_integer"  # Invalid type
-        
+        invalid_data['Recency'] = "not_an_integer"
         response = test_client.post(
             '/api/predict',
             headers=auth_headers,
@@ -137,3 +132,84 @@ class TestModelEndpoints:
         data = json.loads(response.data)
         assert 'churn_probability' in data
         assert 0 <= data['churn_probability'] <= 1
+
+
+class TestDataValidation:
+    """Test data validation and cleaning functionality."""
+    
+    def test_validate_positive_values(self, test_client, auth_headers, sample_customer_data):
+        """Test validation of positive numeric values."""
+        # Test with negative values
+        invalid_data = sample_customer_data.copy()
+        invalid_data['Recency'] = -10
+        
+        response = test_client.post(
+            '/api/predict',
+            headers=auth_headers,
+            json=invalid_data
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert 'cannot be negative' in data['message']
+    
+    def test_validate_required_fields(self, test_client, auth_headers, sample_customer_data):
+        """Test that all required fields are validated."""
+        for field in sample_customer_data:
+            # Create a copy with one field missing
+            test_data = sample_customer_data.copy()
+            del test_data[field]
+            
+            response = test_client.post(
+                '/api/predict',
+                headers=auth_headers,
+                json=test_data
+            )
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert f'Missing required field: {field}' in data['message']
+    
+    def test_validate_data_types(self, test_client, auth_headers, sample_customer_data):
+        """Test validation of data types."""
+        # Test with string instead of number
+        invalid_data = sample_customer_data.copy()
+        invalid_data['Recency'] = 'thirty'  # Should be an integer
+        
+        response = test_client.post(
+            '/api/predict',
+            headers=auth_headers,
+            json=invalid_data
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert 'Invalid value for Recency' in data['message']
+        
+        # Test with float where integer is expected
+        invalid_data = sample_customer_data.copy()
+        invalid_data['Frequency'] = 5.5  # Should be an integer
+        
+        response = test_client.post(
+            '/api/predict',
+            headers=auth_headers,
+            json=invalid_data
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert 'Invalid value for Frequency' in data['message']
+    
+    def test_validate_numeric_ranges(self, test_client, auth_headers, sample_customer_data):
+        """Test validation of numeric value ranges."""
+        # Test with extremely large values that might cause overflow
+        invalid_data = sample_customer_data.copy()
+        invalid_data['Monetary'] = 1e100  # Extremely large value
+        
+        response = test_client.post(
+            '/api/predict',
+            headers=auth_headers,
+            json=invalid_data
+        )
+        # Should either handle large numbers gracefully or return an error
+        assert response.status_code in [200, 400]
+        
+        if response.status_code == 400:
+            data = json.loads(response.data)
+            assert 'Invalid value for Monetary' in data['message']
