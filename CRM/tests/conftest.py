@@ -38,17 +38,19 @@ def test_app():
 @pytest.fixture(scope='function')
 def test_client(test_app, init_database):
     """Create a test client for the Flask application."""
-    with test_app.test_client() as testing_client:
-        with test_app.app_context():
-            yield testing_client
-            # Clean up the session after each test
-            db.session.remove()
-            db.get_engine(test_app).dispose()
+    with test_app.app_context():
+        yield test_app.test_client()
+        # Clean up the session after each test
+        db.session.remove()
+        if hasattr(db, 'engine') and db.engine:
+            db.engine.dispose()
 
 @pytest.fixture(scope='function')
 def init_database(test_app):
     """Initialize the database with test data."""
     with test_app.app_context():
+        # Drop all tables and recreate them
+        db.drop_all()
         db.create_all()
         
         # Create a test user
@@ -60,12 +62,13 @@ def init_database(test_app):
         db.session.add(user)
         db.session.commit()
         
-        yield db  # This is where testing happens
+        yield  # Testing happens here
         
         # Clean up after tests
         db.session.remove()
         db.drop_all()
-        db.get_engine(test_app).dispose()
+        if hasattr(db, 'engine') and db.engine:
+            db.engine.dispose()
 
 @pytest.fixture
 def auth_headers(test_client, init_database):
