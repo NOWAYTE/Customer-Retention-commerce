@@ -37,11 +37,17 @@ def test_app():
 
 @pytest.fixture(scope='module')
 def test_client(test_app):
-    """Create a test client for the Flask application."""
+    """Create a test client for the Flask application with proper context management."""
+    # Create a test client using the Flask application configured for testing
     with test_app.test_client() as testing_client:
         # Establish an application context before running the tests
         with test_app.app_context():
-            yield testing_client
+            yield testing_client  # This is where the testing happens
+
+    # Clean up after tests are done
+    with test_app.app_context():
+        db.session.remove()
+        db.drop_all()
 
 @pytest.fixture(scope='module')
 def init_database(test_app):

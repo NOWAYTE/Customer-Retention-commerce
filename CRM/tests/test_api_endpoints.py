@@ -177,16 +177,21 @@ class TestDataValidation:
         invalid_data = sample_customer_data.copy()
         invalid_data['Recency'] = 'thirty'
         
-        response = test_client.post(
-            '/api/predict',
-            headers=auth_headers,
-            json=invalid_data
-        )
-        # The API might handle string conversion, so we'll check if it returns 200 or 400
-        assert response.status_code in [200, 400], \
-            f"Expected status code 200 or 400, got {response.status_code}"
-            
-        if response.status_code == 400:
-            data = json.loads(response.data)
-            assert 'Invalid value' in data['message'], \
-                f"Expected invalid value error, got: {data['message']}"
+        try:
+            response = test_client.post(
+                '/api/predict',
+                headers=auth_headers,
+                json=invalid_data
+            )
+            # The API might handle string conversion, so we'll check if it returns 200 or 400
+            assert response.status_code in [200, 400], \
+                f"Expected status code 200 or 400, got {response.status_code}"
+                
+            if response.status_code == 400:
+                data = json.loads(response.data)
+                assert 'Invalid value' in data['message'], \
+                    f"Expected invalid value error, got: {data['message']}"
+        finally:
+            # Ensure any database sessions are properly closed
+            from app import db
+            db.session.remove()
