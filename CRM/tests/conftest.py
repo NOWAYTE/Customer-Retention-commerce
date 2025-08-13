@@ -5,7 +5,7 @@ import os
 import tempfile
 import pytest
 from app import create_app, db
-from app.models import get_model
+from app.models.user import User  # Import the User model
 from werkzeug.security import generate_password_hash
 
 # Test configuration
@@ -18,39 +18,53 @@ class TestConfig:
     MARKETING_WEBHOOK_ENABLED = False  # Disable webhooks by default in tests
 
 @pytest.fixture(scope='module')
-def test_client():
-    """Create a test client for the Flask application."""
+def test_app():
+    """Create and configure a new app instance for each test module."""
+    # Create a temporary file to isolate the database for each test module
+    db_fd, db_path = tempfile.mkstemp()
+    
     app = create_app(TestConfig)
-    testing_client = app.test_client()
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
     
-    # Establish an application context before running the tests
-    ctx = app.app_context()
-    ctx.push()
+    # Create the database and load test data
+    with app.app_context():
+        db.create_all()
     
-    yield testing_client
+    yield app  # Testing happens here
     
-    ctx.pop()
+    # Clean up the database file after tests complete
+    os.close(db_fd)
+    os.unlink(db_path)
 
 @pytest.fixture(scope='module')
-def init_database():
+def test_client(test_app):
+    """Create a test client for the Flask application."""
+    with test_app.test_client() as testing_client:
+        # Establish an application context before running the tests
+        with test_app.app_context():
+            yield testing_client
+
+@pytest.fixture(scope='module')
+def init_database(test_app):
     """Initialize the test database."""
-    # Create the database and the database table
-    db.create_all()
-    
-    # Insert test user
-    User = get_model('User')
-    user = User(
-        username='testuser',
-        email='test@example.com',
-        password_hash=generate_password_hash('testpass123')
-    )
-    db.session.add(user)
-    db.session.commit()
-    
-    yield db  # this is where the testing happens
-    
-    db.session.remove()
-    db.drop_all()
+    with test_app.app_context():
+        # Clear existing data and create tables
+        db.drop_all()
+        db.create_all()
+        
+        # Insert test user
+        user = User(
+            username='testuser',
+            email='test@example.com',
+            password_hash=generate_password_hash('testpass123')
+        )
+        db.session.add(user)
+        db.session.commit()
+        
+        yield db  # This is where testing happens
+        
+        db.session.remove()
+        db.drop_all()
 
 @pytest.fixture
 def auth_headers(test_client, init_database):
