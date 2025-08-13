@@ -192,7 +192,7 @@ class TestModelConsistency:
             f"Probability {data['churn_probability']} is not between 0 and 1"
             
         # Check risk level is one of the expected values
-        assert data['risk_level'] in ['low', 'medium', 'high'], \
+        assert data['risk_level'] in ['low', 'moderate', 'high'], \
             f"Unexpected risk level: {data['risk_level']}"
         
         # Check explanation is a non-empty string
