@@ -158,8 +158,8 @@ class TestModelConsistency:
         data2 = json.loads(response2.data)
         
         # Check that predictions are consistent
-        assert data1['probability'] == data2['probability'], \
-            f"Model predictions differ for same input: {data1['probability']} vs {data2['probability']}"
+        assert data1['churn_probability'] == data2['churn_probability'], \
+            f"Model predictions differ for same input: {data1['churn_probability']} vs {data2['churn_probability']}"
         
         # Check that risk levels are consistent
         assert data1['risk_level'] == data2['risk_level'], \
@@ -177,18 +177,19 @@ class TestModelConsistency:
         
         # Check required fields in response
         required_fields = [
-            'probability', 
+            'churn_probability', 
             'risk_level',
             'explanation',
             'recommended_actions',
-            'features_used'
+            'features_used',
+            'model_loaded'
         ]
         for field in required_fields:
             assert field in data, f"Missing required field in response: {field}"
         
         # Check probability is between 0 and 1
-        assert 0 <= data['probability'] <= 1, \
-            f"Probability {data['probability']} is not between 0 and 1"
+        assert 0 <= data['churn_probability'] <= 1, \
+            f"Probability {data['churn_probability']} is not between 0 and 1"
             
         # Check risk level is one of the expected values
         assert data['risk_level'] in ['low', 'medium', 'high'], \
