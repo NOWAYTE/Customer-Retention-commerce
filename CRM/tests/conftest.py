@@ -6,7 +6,6 @@ import tempfile
 import pytest
 from app import create_app, db
 from app.models.user import User  # Import the User model
-from werkzeug.security import generate_password_hash
 
 # Test configuration
 class TestConfig:
@@ -52,11 +51,11 @@ def init_database(test_app):
         db.drop_all()
         db.create_all()
         
-        # Insert test user
+        # Insert test user - using the correct password field that will be hashed
         user = User(
             username='testuser',
             email='test@example.com',
-            password_hash=generate_password_hash('testpass123')
+            password='testpass123'  # This will be hashed by the User model
         )
         db.session.add(user)
         db.session.commit()
